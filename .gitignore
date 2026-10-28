@@ -1,0 +1,22 @@
+# Virtual environments and editor configuration
+.venv/
+venv/
+.vscode/
+.idea/
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local configuration and macOS metadata
+.env
+.env.*
+!.env.example
+.DS_Store
