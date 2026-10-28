@@ -9,15 +9,17 @@ from pokemon_mcp.pokeapi import PokemonServiceUnavailable
 
 
 @pytest.mark.asyncio
-async def test_http_health_discovery_and_tool_calls():
-    asgi = app.mcp.streamable_http_app()
-    async with app.mcp.session_manager.run():
+@pytest.mark.parametrize("service", ["data", "strategist", "analyst"])
+async def test_http_health_discovery_and_tool_calls(service):
+    server = app.create_server(service)
+    asgi = server.streamable_http_app()
+    async with server.session_manager.run():
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=asgi), base_url="http://localhost"
         ) as client:
             health = await client.get("/health")
             assert health.status_code == 200
-            assert health.json() == {"status": "ok"}
+            assert health.json() == {"status": "ok", "service": service}
             headers = {"Accept": "application/json, text/event-stream"}
 
             async def rpc(method, params, request_id=1):
@@ -44,21 +46,34 @@ async def test_http_health_discovery_and_tool_calls():
             })
             assert response.status_code == 202
             tools = await rpc("tools/list", {})
-            assert {tool["name"] for tool in tools["tools"]} == {
-                "get_pokemon_info", "create_tournament_squad", "list_popular_pokemon",
-                "get_pokemon_moves", "list_team_candidates", "suggest_example_team",
-                "analyze_team",
+            expected = {
+                "data": {"get_pokemon_info", "get_pokemon_moves", "list_popular_pokemon"},
+                "strategist": {"list_team_candidates", "suggest_example_team", "create_tournament_squad"},
+                "analyst": {"analyze_team", "analyze_team_types", "analyze_type_matchup"},
             }
-            result = await rpc("tools/call", {
-                "name": "list_popular_pokemon", "arguments": {},
-            })
-            assert result["content"][0]["text"].splitlines() == [
-                "Charizard", "Garchomp", "Lucario", "Dragonite", "Metagross", "Gardevoir",
-            ]
-            result = await rpc("tools/call", {
-                "name": "suggest_example_team", "arguments": {"core": "greninja"},
-            })
-            assert len(json.loads(result["content"][0]["text"])["team"]) == 6
+            assert {tool["name"] for tool in tools["tools"]} == expected[service]
+            calls = {
+                "data": ("list_popular_pokemon", {}),
+                "strategist": ("suggest_example_team", {"core": "greninja"}),
+                "analyst": ("analyze_type_matchup", {
+                    "attacking_type": "rock", "defending_types": ["fire", "flying"],
+                }),
+            }
+            name, arguments = calls[service]
+            result = await rpc("tools/call", {"name": name, "arguments": arguments})
+            assert not result.get("isError")
+            text = result["content"][0]["text"]
+            if service == "data":
+                assert len(text.splitlines()) == 6
+            elif service == "strategist":
+                assert len(json.loads(text)["team"]) == 6
+            else:
+                assert json.loads(text)["damage_multiplier"] == 4
+            # A specialist must reject tools owned by another MCP server.
+            foreign = "suggest_example_team" if service != "strategist" else "analyze_team"
+            rejected = await rpc("tools/call", {"name": foreign, "arguments": {}})
+            assert rejected["isError"]
+
 
 
 @pytest.mark.asyncio
@@ -90,3 +105,20 @@ async def test_original_tools_and_live_analysis(monkeypatch):
     assert "could not be created" in await app.create_tournament_squad()
     assert "Could not retrieve moves" in await app.get_pokemon_moves("pikachu")
     assert "Could not analyze" in await app.analyze_team("pikachu")
+
+
+def test_offline_handoff_from_strategist_to_analyst():
+    proposed = json.loads(app.suggest_example_team("greninja"))
+    analyzed = json.loads(app.analyze_team_types(proposed["team"]))
+    assert analyzed["team_size"] == 6
+    assert analyzed == proposed["analysis"]
+    assert "Could not analyze" in app.analyze_team_types([])
+
+
+def test_invalid_service_and_independent_configuration(monkeypatch):
+    monkeypatch.delenv("PORT", raising=False)
+    with pytest.raises(ValueError):
+        app.create_server("unknown")
+    assert [app.create_server(s).settings.port for s in app.SERVICE_TOOLS] == [8000, 8001, 8002]
+    monkeypatch.setenv("PORT", "9000")
+    assert app.create_server("analyst").settings.port == 9000

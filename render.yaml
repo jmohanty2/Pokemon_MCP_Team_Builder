@@ -1,9 +1,31 @@
 services:
   - type: web
-    name: pokemon-mcp-team-builder
+    name: pokemon-mcp-data
     runtime: docker
     plan: free
     healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.8
+      - key: MCP_SERVICE
+        value: data
+      - key: PORT
+        value: "8000"
+  - type: web
+    name: pokemon-mcp-strategist
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MCP_SERVICE
+        value: strategist
+      - key: PORT
+        value: "8000"
+  - type: web
+    name: pokemon-mcp-analyst
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MCP_SERVICE
+        value: analyst
+      - key: PORT
+        value: "8000"

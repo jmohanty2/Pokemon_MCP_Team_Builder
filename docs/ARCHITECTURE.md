@@ -1,58 +1,48 @@
-# Architecture and engineering decisions
+# Architecture
 
-## System overview
-
-The MCP client (for example ChatGPT) discovers tools exposed over Streamable HTTP. Tool handlers run inside `pokemon_mcp/app.py` and call independent application modules. Data lookups are read-only HTTP calls to public PokéAPI.
-
-```text
-MCP client
-    |
-    v
-server.py -> pokemon_mcp/app.py (tool definitions, /mcp and /health)
-                 |                 |                    |
-                 v                 v                    v
-          pokeapi.py         team_builder.py        type_chart.py
-                 |                 |                    ^
-                 v                 +--------------------+
-              PokéAPI              shared deterministic logic
+```mermaid
+flowchart TD
+    H[ChatGPT or MCP host] --> D[Data Expert MCP :8000]
+    H --> S[Strategist MCP :8001]
+    H --> A[Battle Analyst MCP :8002]
+    D --> P[Public PokéAPI]
+    S --> B[Curated roster and team heuristic]
+    A --> T[Standard type chart]
+    A --> P
 ```
 
-## Why a single MCP server?
+The arrows from the host represent separate MCP connections. The host passes the
+Strategist's typed `team` array into the Analyst's `analyze_team_types` tool.
+There are no implicit server-to-server calls and no in-service LLM. Live lookups
+are optional for the offline suggestion/typed-analysis path.
 
-One server is enough: separate tools handle retrieval, generation and analysis. Splitting these into three independently deployed servers adds hosting, discovery and authentication overhead without improving team quality. Components can be separated later if there are real scaling or ownership reasons.
+## Modules
 
-## Design decisions
+- `app.py`: tool handlers and `create_server` factory. Each factory call owns an
+  independent registry and exposes only three tools for its specialist.
+- `data_server.py`, `strategist_server.py`, `analyst_server.py`: independent entry
+  points for HTTP or STDIO clients.
+- `pokeapi.py`: validated external API adapter and response summaries.
+- `team_builder.py`: deterministic role coverage and greedy weakness heuristic
+  over a curated candidate roster. Styles change role selection order.
+- `type_chart.py`: standard defensive multiplier calculations without network I/O.
+- `server.py`: Docker/Render selector using `MCP_SERVICE`.
 
-1. **Keep the public entry point stable.** `server.py`, the `/mcp` path, `/health` remain stable. The standalone project uses its own Render service name.
-2. **Separate I/O and logic.** `pokeapi.py` handles HTTP and validation. Type matchup code has no network dependency.
-3. **Make algorithm limitations obvious.** The builder selects from a curated roster, not live usage data or official legality rules.
-4. **Return machine-readable structures when helpful.** Suggestions, moves and team analysis return JSON strings suitable for an MCP client.
-5. **Simple user inputs.** Team analysis accepts comma-separated Pokémon names and resolves typings itself.
-6. **Design for testability.** `httpx.MockTransport` verifies API handling without relying on third-party uptime.
+Each process owns its HTTP lifecycle and session manager. Local default ports
+are 8000/8001/8002. Render runs three containers on internal port 8000 with distinct
+public URLs. Each has `/mcp` and `/health`; health reports process readiness,
+not external API availability.
 
-## Team builder algorithm
+Shared code avoids duplicated type rules while deployment and tool discovery stay
+independent. This creates a protocol/schema compatibility responsibility: consumers
+must pass a list of unique named entries with one or two valid types to the Analyst.
+Invalid input produces a readable tool response. Errors are not evidence of valid
+analysis; callers must inspect the returned result.
 
-Start with a requested core Pokémon and select candidates to cover six useful roles. For each available candidate, evaluate overlapping weaknesses, whether the candidate resists existing vulnerabilities, and duplicated typing. Select the best-scoring candidate for each unfilled role. The result is reproducible; it is not a trained model or a claim about statistical competitive strength.
+## Limits
 
-The algorithm currently ignores move and item compatibility, matchups against a metagame sample, speed benchmarks, dynamic battle state, and legal format restrictions. Improving those areas is in the roadmap.
-
-## Security and reliability
-
-- The API adapter validates Pokémon names and uses an explicit request timeout.
-- Connections do not follow redirects, and external calls go to a fixed PokéAPI host.
-- The server never requires or stores user secrets.
-- The public endpoint is unauthenticated. Restrict access if sensitive capabilities are added.
-- A health route supports platform readiness checks.
-- Unit tests use canned HTTP responses rather than requiring internet access.
-
-## Key modules
-
-| Path | Purpose |
-| --- | --- |
-| `server.py` | Local and production entry point |
-| `pokemon_mcp/app.py` | MCP tool registration and HTTP health route |
-| `pokemon_mcp/pokeapi.py` | Input validation and PokéAPI service calls |
-| `pokemon_mcp/type_chart.py` | Static type-effectiveness and team coverage analysis |
-| `pokemon_mcp/team_builder.py` | Explainable, deterministic example team assembly |
-| `tests/` | Offline unit tests |
-| `.github/workflows/ci.yml` | Continuous integration for tests and lint |
+The roster's roles are illustrative. No format eligibility, moveset legality,
+abilities, items or battle simulation is implemented. External API timeouts and
+malformed responses become service errors. Public endpoints are unauthenticated.
+Three-service orchestration demonstrates architecture and contracts rather than
+improved competitive strength.

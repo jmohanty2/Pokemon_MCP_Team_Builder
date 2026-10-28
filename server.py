@@ -1,9 +1,7 @@
-"""Stable entry point for Render, Docker and local MCP clients.
+"""Docker/Render entry point: select data, strategist or analyst with MCP_SERVICE."""
+import os
 
-Keep this file small: tools and business logic live in ``pokemon_mcp``.
-"""
-
-from pokemon_mcp.app import MCP_TRANSPORT, mcp
+from pokemon_mcp.app import run_service
 
 if __name__ == "__main__":
-    mcp.run(transport=MCP_TRANSPORT)
+    run_service(os.getenv("MCP_SERVICE", "data"))

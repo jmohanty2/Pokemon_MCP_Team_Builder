@@ -1,126 +1,122 @@
-# Pokémon MCP Team Builder
+# Pokémon MCP Team Builder — Three Specialist Servers
 
-**A Python Model Context Protocol (MCP) server that lets ChatGPT retrieve live Pokémon data, explore team compositions, and explain type-based weaknesses.**
+A Python student portfolio project exposing **three independent Model Context
+Protocol servers**. ChatGPT (or another MCP host) coordinates data retrieval,
+example team construction, and defensive type analysis by calling their tools.
 
-> **Project status:** Educational prototype with working data retrieval and explainable team suggestions. It is **not** a competitive legality checker or battle simulator. Suggested teams are not guaranteed legal or optimal for a specific metagame.
+| MCP server | Responsibility | Tools | Local port |
+| --- | --- | --- | --- |
+| Data Expert | Live PokéAPI stats, abilities, types and historical moves | `get_pokemon_info`, `get_pokemon_moves`, `list_popular_pokemon` | 8000 |
+| Strategist | Deterministic six-member example teams and curated roles | `suggest_example_team`, `list_team_candidates`, `create_tournament_squad` | 8001 |
+| Battle Analyst | Defensive weaknesses and type matchups | `analyze_team`, `analyze_team_types`, `analyze_type_matchup` | 8002 |
 
-## The problem
+Each server has its own MCP identity, tool registry, process, `/mcp` endpoint,
+and `/health` route. They share reusable Python modules in this repository.
+There is no combined seven-tool endpoint. Servers do not call one another:
+the MCP host passes results between them.
 
-Pokémon information is scattered across reference websites, and building a balanced six-member team requires comparing types, roles and weaknesses. This project connects an AI assistant to a real data source and adds deterministic analysis tools so users can ask questions in natural language.
+## Quick start
 
-## What it does
-
-| Capability | How it works | Status |
-| --- | --- | --- |
-| Live Pokémon stats, types and abilities | Fetches data from PokéAPI | Implemented |
-| Move discovery | Lists recorded moves with a legality disclaimer | Implemented |
-| Team suggestions | Deterministic role and type heuristic over a curated roster | Implemented (demo) |
-| Team weakness analysis | Calculates type matchups and shared weaknesses | Implemented |
-| Original six-Pokémon demo | Preserves the tutorial tools for backward compatibility | Implemented |
-| Official format legality and Showdown exports | Requires a maintained rules source and set validator | Future work |
-| Battle simulations or real win rates | Requires a full battle engine and evaluation methodology | Future work |
-
-## Quick demonstration
-
-```text
-User: Use Pokémon MCP to show Greninja's stats.
-Assistant: [calls get_pokemon_info] Greninja is Water/Dark ...
-
-User: Suggest a balanced example team around Greninja.
-Assistant: [calls suggest_example_team] Here is a six-member example,
-           each role, and an explanation of shared type weaknesses.
-
-User: Is this guaranteed legal in Gen 9 OU?
-Assistant: No. This version does not validate tier or moveset legality.
-```
-
-For an offline demo that requires **no account, API key or network**:
-
-```bash
-python -m scripts.demo
-```
-
-## Architecture
-
-```mermaid
-flowchart TD
-    A[ChatGPT or MCP client] -->|MCP tools| B[Python FastMCP server]
-    B --> C[PokéAPI adapter]
-    C --> D[Public PokéAPI]
-    B --> E[Team-building heuristic]
-    B --> F[Type matchup analyzer]
-    E --> F
-```
-
-The app separates transport (`pokemon_mcp/app.py`), external API access (`pokemon_mcp/pokeapi.py`), type calculations (`pokemon_mcp/type_chart.py`), and team-building logic (`pokemon_mcp/team_builder.py`). This makes the rules testable without ChatGPT or a live API. See [architecture notes](docs/ARCHITECTURE.md).
-
-## Run locally
-
-Requirements: Python **3.11+**.
+Python 3.11+ is required. No API keys are needed.
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate             # Windows PowerShell: .venv\Scripts\Activate.ps1
+source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m pytest -q
-python server.py
 ```
 
-The Streamable HTTP MCP endpoint is `http://localhost:8000/mcp`; the health route is `http://localhost:8000/health`. Use the `/mcp` endpoint with an MCP-compatible client. A localhost URL is not accessible to cloud-hosted ChatGPT.
+Run each command in a separate terminal with the virtual environment activated:
 
-To use local STDIO transport, run `MCP_TRANSPORT=stdio python server.py`.
-
-## Deploy on Render
-
-This standalone project deploys as a separate Render service named `pokemon-mcp-team-builder`. It exposes `/health` and `/mcp` and starts through `server.py`. Create a new Render Blueprint connected to this repository; the original Pokémon MCP service is independent.
-
-1. Deploy from this repository using the included Docker configuration.
-2. Check `https://YOUR-RENDER-URL/health` returns `status: ok`.
-3. Connect an MCP client to `https://YOUR-RENDER-URL/mcp`.
-4. Verify that the client discovers all the tools below.
-
-Free-tier instances may need a cold start. No PokéAPI key or OpenAI API key is required. The server is publicly reachable and currently unauthenticated: **do not extend it to private user data without authentication and access controls.**
-
-## MCP tools
-
-| Tool | Description |
-| --- | --- |
-| `get_pokemon_info(name)` | Live stats, typing, abilities |
-| `get_pokemon_moves(name, limit=30)` | Historically recorded moves; no format legality guarantee |
-| `suggest_example_team(core="greninja", playstyle="balanced")` | Six-member educational team suggestion; curated candidate pool |
-| `list_team_candidates()` | Names and roles accepted by the example builder |
-| `analyze_team(pokemon_names)` | Fetch live typings and analyze 1–6 comma-separated names |
-| `create_tournament_squad()` | Original tutorial's fixed six-member demonstration |
-| `list_popular_pokemon()` | Original tutorial's fixed popularity list |
-
-An `analyze_team` example input:
-
-```text
-Greninja, Corviknight, Garchomp
+```bash
+python -m pokemon_mcp.data_server        # port 8000
+python -m pokemon_mcp.strategist_server  # port 8001
+python -m pokemon_mcp.analyst_server     # port 8002
 ```
 
-The analysis reports type weaknesses and resistances only. It does not account for Pokémon abilities, items, moves, Tera types, battle format rules, or turn-by-turn gameplay.
+Register all three URLs with your local MCP host:
+`http://localhost:8000/mcp`, `http://localhost:8001/mcp`, and
+`http://localhost:8002/mcp`. Cloud-hosted ChatGPT needs public HTTPS URLs instead.
+Health responses identify the service, for example
+`{"status":"ok","service":"analyst"}`.
 
-## Code quality and tests
+Alternatively run `MCP_SERVICE=analyst python server.py`.
+`MCP_SERVICE` accepts `data` (default), `strategist`, or `analyst`.
+`HOST` and `PORT` override HTTP binding; `MCP_TRANSPORT=stdio` enables local
+STDIO clients. With STDIO configure three client entries, each launching its
+respective `python -m pokemon_mcp.<role>_server` command using the venv interpreter.
 
-Run `python -m pytest -q` to run offline unit tests using HTTP mocks. Run `python -m ruff check pokemon_mcp server.py tests scripts` to check style. GitHub Actions runs these checks for each push and pull request. See [validation guide](docs/TESTING.md) for coverage and live checks. Tests do **not** prove that suggested teams win battles or are tournament legal.
+## Example coordination
 
-## Portfolio / interview talking points
+Ask your MCP host: “Build an example team around Greninja and explain its weaknesses.”
 
-- **Integration:** Built a remote MCP server and connected an LLM interface to PokéAPI.
-- **Software design:** Separated networking, tool definitions, algorithms and tests into modules.
-- **Algorithms:** Developed explainable team selection using role coverage and overlapping type weaknesses.
-- **Engineering:** Added deterministic tests, mock HTTP responses, CI and deployment documentation.
-- **Tradeoffs:** Explicitly scoped the prototype; avoided fabricating competitive legality or win rates.
+1. Data Expert: call `get_pokemon_info(name="greninja")` for live reference data.
+2. Strategist: call `suggest_example_team(core="greninja", playstyle="balanced")`.
+3. Battle Analyst: pass the result's `team` array to `analyze_team_types(team=...)`.
+4. Ask the Strategist for an alternative playstyle and compare the Analyst's reports.
 
-See [live demo script](docs/DEMO.md) and [project roadmap](docs/ROADMAP.md).
+The Strategist uses a documented curated roster, not arbitrary live candidates.
+Its `team` array contains names, types and roles. The Analyst can accept that
+array without further network calls, or resolve live typings from 1–6
+comma-separated names via `analyze_team(pokemon_names="charizard,garchomp")`.
+`analyze_type_matchup(attacking_type="rock", defending_types=["fire","flying"])`
+returns a 4x multiplier.
+
+For protocol-level checks against all three running services:
+
+```bash
+python -m scripts.check_services
+```
+
+For an offline algorithm demonstration without servers: `python -m scripts.demo`.
+
+## Deploy three services on Render
+
+Create a **new Blueprint** connected to this repository. `render.yaml` defines
+`pokemon-mcp-data`, `pokemon-mcp-strategist`, and `pokemon-mcp-analyst`, all using
+the same Dockerfile with different `MCP_SERVICE` values. Each service uses its own
+container and port 8000 internally; their public hostnames differ. Free-service
+availability and quotas depend on your Render account.
+
+Check each public `/health`, then register each public HTTPS `/mcp` URL as a
+separate MCP connection. Refresh tool discovery when changing services. This
+project does not change the original `Pokemon_MCP_Server` repository or deployment.
+For Docker locally, build `docker build -t pokemon-mcp .` and run three containers
+with `-e MCP_SERVICE=<role>` and distinct host ports mapped to container port 8000.
+
+## Scope and tradeoffs
+
+This is an educational prototype, not a competitive optimizer or battle simulator.
+Historical move discovery does not establish format-specific legality. Analysis
+uses the standard modern 18-type chart, excluding abilities, items, moves, Tera,
+EVs, speed benchmarks, and battle outcomes. Shared weaknesses affect at least three
+members. Individual reports distinguish 0x, 0.25x, 0.5x, 1x, 2x and 4x matchups.
+
+Three servers demonstrate independent deployment and host-mediated coordination,
+but add three processes, connections and deployment lifecycles. They do not
+inherently make suggestions stronger. No LLM, automatic cross-server orchestrator,
+or claim of tournament legality is embedded in these services.
+
+## Engineering and interview material
+
+```bash
+python -m pytest -q
+python -m ruff check pokemon_mcp server.py tests scripts
+python -m pip check
+```
+
+CI runs offline tests and lint. See [architecture](docs/ARCHITECTURE.md),
+[validation](docs/TESTING.md), [interview demo](docs/DEMO.md), and
+[roadmap](docs/ROADMAP.md).
+
+The public services have no authentication; do not add private data or write
+capabilities without appropriate access controls. PokéAPI requests use timeouts,
+validated names, a fixed host and TLS verification.
 
 ## Attribution
 
-Started as an adaptation of the 2MinutesPy "Building an MCP server in 2 minutes" demonstration. The original demo's three tool names are preserved for compatibility; the modular architecture, team-analysis utilities, tests, and expanded documentation are project enhancements.
-
-- [Original tutorial inspiration](https://github.com/Sachin-crypto/Pokemon-MCP-Server)
-- [PokéAPI](https://pokeapi.co/)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-
-This is an unofficial fan developer project and is not affiliated with The Pokémon Company, Nintendo or Game Freak.
+Based on the 2MinutesPy Pokémon MCP tutorial. The original three demo tools remain
+available across the specialist servers; their single-server connection layout
+has changed. Pokémon data comes from [PokéAPI](https://pokeapi.co/).
+This unofficial fan project is not affiliated with Nintendo, Game Freak or
+The Pokémon Company.

@@ -1,5 +1,13 @@
 # Changelog
 
+## Three-specialist architecture
+
+- Split tool discovery across Data Expert, Strategist and Battle Analyst servers.
+- Add independent HTTP/STDIO entry points and three Render services.
+- Add typed-team handoff and single-type matchup tools to the Analyst.
+- Add per-service protocol tests and a real-process MCP smoke script.
+- Replace the combined endpoint with three specialist connections.
+
 ## 2.0.0 — Proposed portfolio upgrade
 
 ### Added

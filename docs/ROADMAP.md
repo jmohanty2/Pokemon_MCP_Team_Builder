@@ -2,6 +2,8 @@
 
 ## Delivered in this revision
 
+- [x] Three independent specialist MCP services and host-mediated typed-team handoff
+
 - [x] Modularize the original Python MCP application
 - [x] Preserve the original three demo tools and remote transport
 - [x] Add move discovery with clear limitations

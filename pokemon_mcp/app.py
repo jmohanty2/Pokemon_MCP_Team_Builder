@@ -14,31 +14,8 @@ from .pokeapi import (
     PokemonLookupError, fetch_pokemon, list_known_moves, parse_team_names, summarize_pokemon,
 )
 from .team_builder import CANDIDATES, build_example_team
-from .type_chart import analyze_types
+from .type_chart import analyze_types, type_multiplier
 
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "8000"))
-MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
-
-mcp = FastMCP(
-    "Pokemon MCP Server",
-    instructions=(
-        "Use these read-only tools for Pokémon data and *illustrative* team suggestions. "
-        "The team builder is a heuristic demonstration and does NOT validate "
-        "competitive legality, movesets, battle outcomes, or tournament viability."
-    ),
-    host=HOST,
-    port=PORT,
-    streamable_http_path="/mcp",
-)
-
-
-@mcp.custom_route("/health", methods=["GET"])
-async def health_check(_: Request) -> JSONResponse:
-    return JSONResponse({"status": "ok"})
-
-
-@mcp.tool()
 async def get_pokemon_info(name: str) -> str:
     """Retrieve live Pokémon types, base stats and abilities by name."""
     try:
@@ -56,7 +33,6 @@ async def get_pokemon_info(name: str) -> str:
     )
 
 
-@mcp.tool()
 async def get_pokemon_moves(name: str, limit: int = 30) -> str:
     """Get PokéAPI-recorded moves, NOT a format-specific legal moveset."""
     try:
@@ -66,7 +42,6 @@ async def get_pokemon_moves(name: str, limit: int = 30) -> str:
         return f"Could not retrieve moves: {exc}"
 
 
-@mcp.tool()
 async def analyze_team(pokemon_names: str) -> str:
     """Analyze type weaknesses for 1–6 comma-separated Pokémon names.
 
@@ -85,7 +60,6 @@ async def analyze_team(pokemon_names: str) -> str:
         return f"Could not analyze team: {exc}"
 
 
-@mcp.tool()
 def suggest_example_team(core: str = "greninja", playstyle: str = "balanced") -> str:
     """Suggest an educational six-Pokémon example using a role/type heuristic.
 
@@ -98,7 +72,6 @@ def suggest_example_team(core: str = "greninja", playstyle: str = "balanced") ->
         return f"Cannot build example team: {exc}"
 
 
-@mcp.tool()
 def list_team_candidates() -> str:
     """List curated Pokémon available for illustrative team suggestions."""
     return json.dumps([
@@ -111,7 +84,6 @@ def list_team_candidates() -> str:
 _DEMO_SQUAD = ("charizard", "garchomp", "lucario", "dragonite", "metagross", "gardevoir")
 
 
-@mcp.tool()
 async def create_tournament_squad() -> str:
     """Return the original tutorial's fixed demo roster (not an optimized team)."""
     found = []
@@ -126,7 +98,72 @@ async def create_tournament_squad() -> str:
     return "Tournament Squad:\n" + "\n".join(found)
 
 
-@mcp.tool()
 def list_popular_pokemon() -> str:
     """List the six Pokémon from the original tutorial (fixed demonstration)."""
     return "\n".join(name.capitalize() for name in _DEMO_SQUAD)
+
+
+def analyze_team_types(team: list[dict]) -> str:
+    """Analyze a typed roster from the Strategist or Data Expert without network calls."""
+    try:
+        return json.dumps(analyze_types(team), indent=2)
+    except (ValueError, TypeError, AttributeError) as exc:
+        return f"Could not analyze team: {exc}"
+
+
+def analyze_type_matchup(attacking_type: str, defending_types: list[str]) -> str:
+    """Calculate one attacking type against one or two defending types, excluding abilities."""
+    try:
+        multiplier = type_multiplier(attacking_type, defending_types)
+        return json.dumps({"attacking_type": attacking_type, "defending_types": defending_types,
+                           "damage_multiplier": multiplier, "scope": "Type chart only"})
+    except ValueError as exc:
+        return f"Could not analyze matchup: {exc}"
+
+
+SERVICE_TOOLS = {
+    "data": (get_pokemon_info, get_pokemon_moves, list_popular_pokemon),
+    "strategist": (list_team_candidates, suggest_example_team, create_tournament_squad),
+    "analyst": (analyze_team, analyze_team_types, analyze_type_matchup),
+}
+SERVICE_NAMES = {
+    "data": "Pokemon Data Expert",
+    "strategist": "Pokemon Strategist",
+    "analyst": "Pokemon Battle Analyst",
+}
+SERVICE_INSTRUCTIONS = {
+    "data": "Retrieve live Pokémon stats, types, abilities and historical moves from PokéAPI. "
+            "Move discovery does not validate competitive legality.",
+    "strategist": "Build illustrative six-member teams from the curated candidate roster. "
+                  "Pass the returned typed team to the Battle Analyst's analyze_team_types tool. "
+                  "Suggestions do not validate competitive legality or battle outcomes.",
+    "analyst": "Evaluate defensive weaknesses and type matchups. Accept typed teams from the "
+               "Strategist with analyze_team_types or fetch live types with analyze_team. "
+               "This is type analysis, not a battle simulator; abilities/items are excluded.",
+}
+
+
+def create_server(service: str, *, host: str | None = None, port: int | None = None) -> FastMCP:
+    """Create an independent MCP server exposing only its specialist's tools."""
+    if service not in SERVICE_TOOLS:
+        raise ValueError("MCP_SERVICE must be data, strategist, or analyst")
+    defaults = {"data": 8000, "strategist": 8001, "analyst": 8002}
+    server = FastMCP(
+        SERVICE_NAMES[service], instructions=SERVICE_INSTRUCTIONS[service],
+        host=host or os.getenv("HOST", "0.0.0.0"),
+        port=port if port is not None else int(os.getenv("PORT", str(defaults[service]))),
+        streamable_http_path="/mcp",
+    )
+
+    @server.custom_route("/health", methods=["GET"])
+    async def health_check(_: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok", "service": service})
+
+    for tool in SERVICE_TOOLS[service]:
+        server.tool()(tool)
+    return server
+
+
+def run_service(service: str) -> None:
+    """Run a specialist over HTTP by default, or STDIO when configured."""
+    create_server(service).run(transport=os.getenv("MCP_TRANSPORT", "streamable-http"))

@@ -1,28 +1,23 @@
-# 3-minute interview demonstration
+# Three-minute interview demo
 
-## Thirty-second introduction
+1. Start all three specialist modules following the README. Show three `/health`
+   identities and connect three MCP endpoints to the host.
+2. Ask the Data Expert for Greninja's stats. Explain that this requires PokéAPI;
+   do not claim success if an upstream error occurs.
+3. Ask the Strategist for a balanced example around Greninja. Explain deterministic
+   role selection from a curated roster, not metagame optimization.
+4. Pass its `team` array to the Analyst's `analyze_team_types` tool. Discuss shared
+   weaknesses and 4x vulnerabilities. Demonstrate a standalone rock attack against
+   fire/flying via `analyze_type_matchup`.
+5. Show `python -m scripts.check_services`, tests, CI, and architecture notes.
 
-> I built a Python MCP server that connects an AI assistant to a real Pokémon data API. I then extended the original demonstration with testable, explainable algorithms for team suggestions and defensive type analysis. It runs remotely using Streamable HTTP and deploys with Docker on Render.
+The host coordinates tools; no automatic host orchestration is bundled. The
+protocol smoke script performs a deterministic handoff for reproducible validation.
+For a network-free algorithm demo without servers use `python -m scripts.demo`.
 
-## Demonstration
+**Why three MCPs?** Independent discovery, deployment and focused tool boundaries.
+The cost is more processes, URLs and operational work. Shared libraries keep rules
+consistent. One server would also be suitable for a small project.
 
-1. **Show a live lookup.** Ask: "Use Pokémon MCP to tell me Greninja's types, abilities and base stats." Explain that ChatGPT invokes a tool, and the server fetches structured PokéAPI data.
-2. **Show an example team.** Ask: "Use `suggest_example_team` to build a balanced example team around Greninja, and explain why each Pokémon was selected." Show the six roles and the type-overlap analysis.
-3. **Show transparent limitations.** Ask: "Is this automatically legal in Gen 9 OU?" Answer no: the heuristic does not validate format-specific restrictions, sets, items or moves.
-4. **Show engineering maturity.** Open `tests/`, `.github/workflows/ci.yml`, and `docs/ARCHITECTURE.md`. Demonstrate that core algorithm tests run offline.
-
-## Demo without ChatGPT or internet
-
-```bash
-python -m scripts.demo
-```
-
-## Interview Q&A
-
-**Why use MCP instead of just writing a chatbot?** MCP exposes structured tools in a protocol that compatible clients can discover and call. The Python service owns the data retrieval and algorithms; the assistant chooses when to use them.
-
-**Why one MCP server instead of three?** Multiple tools can coexist in one server. Keeping them together reduces operational complexity for a small, coherent project.
-
-**What was the hardest engineering tradeoff?** A basic type matcher is easy to mistake for a competitive optimizer. I deliberately label suggested teams as educational and separate explainable heuristics from unimplemented legality checking or simulations.
-
-**How would you improve it?** Add battle-format restrictions, a Showdown validator, curated competitive sets, usage statistics and reproducible battle simulations.
+**Are the teams tournament legal?** No legality validator or competitive evaluation
+is implemented. Analysis covers standard type matchups only.
